@@ -1,0 +1,21 @@
+# Ignore Python cache
+__pycache__/
+*.pyc
+
+# Ignore virtual environments
+venv/
+
+# Ignore all .log files
+*.log
+
+# Ignore model outputs
+results_ppo/
+*.ckpt
+
+# Ignore trained models
+llm/jammer_agent_TinyLlama-1.1B-Chat-v1.0_ppo_trained/
+llm/trainer_output/
+
+# Ignore system or editor files
+.DS_Store
+*.swp
