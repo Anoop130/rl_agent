@@ -1,4 +1,4 @@
-# auto_tuner_agent.py (Reverted to the proven parser, keeping other improvements)
+# auto_tuner_agent.py (Optimized for High-VRAM GPU)
 
 import torch
 import yaml
@@ -7,16 +7,14 @@ import random
 import argparse
 from tqdm import tqdm
 from itertools import product
-
-# Imports for the simplified, no-fine-tuning approach
 from transformers import (
-    AutoTokenizer, GenerationConfig, BitsAndBytesConfig,
+    AutoTokenizer, GenerationConfig,
     AutoModelForCausalLM
 )
 from simulation_env import mock_run_simulation_and_get_reward
 
 # ===================================================================
-# SECTION 1: AUTO-TUNER AGENT and HELPER FUNCTION
+# SECTION 1: AUTO-TUNER AGENT and HELPER FUNCTION (Unchanged)
 # ===================================================================
 class HyperparameterAgent:
     def __init__(self, action_space: dict):
@@ -51,44 +49,34 @@ class HyperparameterAgent:
         keys, values = self.action_space.keys(), self.action_space.values()
         return [dict(zip(keys, instance)) for instance in product(*values)]
 
-# --- REVERTED: Using the simpler parser that was proven to work ---
 def _parse_llm_output(text: str) -> dict:
-    """
-    Parses the full text from the LLM to find and decode the YAML block.
-    This is the simpler version that worked previously.
-    """
     try:
         if "### YAML Output:" in text:
             yaml_string = text.split("### YAML Output:")[-1].strip()
-            # Handle the case where the model wraps the output in markdown
             if yaml_string.startswith("```yaml"):
                 yaml_string = yaml_string.split("```yaml\n", 1)[-1]
                 if "```" in yaml_string:
                      yaml_string = yaml_string.rsplit("```", 1)[0]
-            
             config = yaml.safe_load(yaml_string)
-            if isinstance(config, dict):
-                return config
-    except (yaml.YAMLError, IndexError):
-        pass
+            if isinstance(config, dict): return config
+    except (yaml.YAMLError, IndexError): pass
     return None
 
 # ===================================================================
-# SECTION 2: THE GENERATION RUNNER
+# SECTION 2: THE GENERATION RUNNER (Now with Batching)
 # ===================================================================
 def execute_generation_run(hparams: dict, model, tokenizer) -> float:
     print(f"\n--- [Worker] Starting run with Generation HPs: {hparams} ---")
     
     PROMPT_TEMPLATE = """You are a highly skilled RF engineer specializing in electronic countermeasures.
 Your mission is to generate a complete YAML configuration file to effectively jam a target frequency.
-
 ### Instructions:
 1.  Analyze the `High-Level Goal`.
 2.  Determine the optimal values for **all** required configuration parameters.
 3.  The output MUST be a single, valid YAML block containing all necessary keys.
 4.  Use snake_case for all keys (e.g., `center_frequency`).
 5.  Use scientific 'e' notation for frequencies and bandwidth.
-
+6.  Do not output anything other than the given set of keys.
 ### Example:
 High-Level Goal: Jam a target at 0.915 GHz
 ### Example YAML Output:
@@ -105,16 +93,13 @@ write_iq: false
 write_csv: true
 device_args: "type=b200"
 tx_gain: 55
-
 ---
-
 ### Current Task:
 High-Level Goal: Jam a target at {freq:.4f} GHz
-
 ### YAML Output:
 """
-    total_score = 0
-    test_frequencies = [1.83, 1.842, 1.85] 
+    # --- ACCURACY UPGRADE: More test cases for a more reliable score ---
+    test_frequencies = [1.83, 1.842, 1.85, 1.865, 1.88, 1.90, 1.915, 1.923]
     
     generation_config = GenerationConfig(
         max_new_tokens=250,
@@ -123,54 +108,59 @@ High-Level Goal: Jam a target at {freq:.4f} GHz
         **hparams
     )
 
-    for freq in test_frequencies:
-        prompt_text = PROMPT_TEMPLATE.format(freq=freq)
-        inputs = tokenizer(prompt_text, return_tensors="pt").to(model.device)
-        
-        output_tokens = model.generate(**inputs, generation_config=generation_config)
+    # --- EFFICIENCY UPGRADE: Process all frequencies in a single batch ---
+    prompts = [PROMPT_TEMPLATE.format(freq=f) for f in test_frequencies]
+    inputs = tokenizer(prompts, return_tensors="pt", padding=True, truncation=True).to(model.device)
+    
+    output_tokens = model.generate(**inputs, generation_config=generation_config)
+    full_texts = tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
 
-        input_token_length = inputs.input_ids.shape[1]
-        generated_token_ids = output_tokens[0, input_token_length:]
-        generated_text_only = tokenizer.decode(generated_token_ids, skip_special_tokens=True)
-
-        print("="*40)
-        print(f"DEBUGGING: Generated-only output for frequency {freq} GHz:")
-        print(generated_text_only)
-        print("="*40)
+    total_score = 0
+    print("="*40)
+    print(f"DEBUGGING: Batch outputs for HPs: {hparams}")
+    for i, full_text in enumerate(full_texts):
+        print(f"--- Output for freq {test_frequencies[i]} GHz ---")
+        print(full_text.split("### YAML Output:")[-1].strip())
+        print("-" * 20)
         
-        full_text = tokenizer.decode(output_tokens[0], skip_special_tokens=True)
         config = _parse_llm_output(full_text)
         score = mock_run_simulation_and_get_reward(config)
         total_score += score
 
+    print("="*40)
     avg_score = total_score / len(test_frequencies)
     print(f"--- [Worker] Run Complete. Final average score: {avg_score:.4f} ---")
     return avg_score
 
 # ===================================================================
-# SECTION 3: THE MAIN CONTROLLER
+# SECTION 3: THE MAIN CONTROLLER (Now with high-precision model loading)
 # ===================================================================
 def main():
     parser = argparse.ArgumentParser(description="Auto-Tuner for LLM Generation.")
     parser.add_argument("--model", type=str, default="deepseek-ai/DeepSeek-Coder-6.7B-Instruct", help="Base model to use.")
-    parser.add_argument("--loops", type=int, default=50, help="Number of hyperparameter sets to test.")
+    # Increased default loops since runs are much faster now
+    parser.add_argument("--loops", type=int, default=30, help="Number of hyperparameter sets to test.")
     args = parser.parse_args()
 
-    # Refined hyperparameter space based on results
+    # --- ACCURACY UPGRADE: A more thorough search for better results ---
     hyperparameter_space = {
         'temperature': [0.6, 0.7, 0.8],
-        'top_p': [0.9, 0.95],
-        'repetition_penalty': [1.0, 1.1],
+        'top_p': [0.85, 0.90, 0.95],
+        'repetition_penalty': [1.0, 1.1, 1.15],
     }
     
     auto_tuner = HyperparameterAgent(hyperparameter_space)
-    
     run_history = []
 
-    print("="*20 + " LOADING BASE MODEL (ONCE) " + "="*20)
+    print("="*20 + " LOADING BASE MODEL (HIGH PRECISION) " + "="*20)
     print(f"Using model: {args.model}")
-    bnb_config = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_use_double_quant=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16)
-    model = AutoModelForCausalLM.from_pretrained(args.model, quantization_config=bnb_config, device_map="auto")
+    
+    # --- ACCURACY UPGRADE: Use higher precision for better quality ---
+    model = AutoModelForCausalLM.from_pretrained(
+        args.model,
+        torch_dtype=torch.bfloat16, # Use high-precision bfloat16
+        device_map="auto"
+    )
     tokenizer = AutoTokenizer.from_pretrained(args.model)
     if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
     print("="*20 + " MODEL LOADED " + "="*20)

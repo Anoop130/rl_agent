@@ -29,7 +29,7 @@ def mock_run_simulation_and_get_reward(config: dict) -> float:
         
         if config.get("device_args") != "type=b200":
              return -0.2 
-             
+             842e9
     # --- CHANGED: Capture the exception as 'e' and print it ---
     except (TypeError, ValueError, AttributeError) as e:
         print(f"!!! VALUE PARSING FAILED !!! Error was: {e}")
