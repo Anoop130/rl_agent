@@ -1,6 +1,6 @@
 torch
-transformers
 bitsandbytes
+transformers
 accelerate
-pyyaml
+scipy
 tqdm

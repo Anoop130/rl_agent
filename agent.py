@@ -119,9 +119,9 @@ High-Level Goal: Jam a target at {freq:.4f} GHz
     print("="*40)
     print(f"DEBUGGING: Batch outputs for HPs: {hparams}")
     for i, full_text in enumerate(full_texts):
-        print(f"--- Output for freq {test_frequencies[i]} GHz ---")
-        print(full_text.split("### YAML Output:")[-1].strip())
-        print("-" * 20)
+        # print(f"--- Output for freq {test_frequencies[i]} GHz ---")
+        # print(full_text.split("### YAML Output:")[-1].strip())
+        # print("-" * 20)
         
         config = _parse_llm_output(full_text)
         score = mock_run_simulation_and_get_reward(config)
@@ -165,7 +165,19 @@ def main():
     if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token
     print("="*20 + " MODEL LOADED " + "="*20)
 
-    print(f"Running for {args.loops} loops.")
+    try:
+        print(f"Running for {args.loops} loops. Press Ctrl+C to stop early and see results.")
+        for i in range(args.loops):
+            print(f"\n{'='*15} Auto-Tuner Episode {i+1}/{args.loops} {'='*15}")
+            chosen_hps = auto_tuner.get_action()
+            reward = execute_generation_run(
+                hparams=chosen_hps, model=model, tokenizer=tokenizer
+            )
+            auto_tuner.learn(action=chosen_hps, reward=reward)
+            run_history.append({'reward': reward, 'hps': chosen_hps})
+            
+    except KeyboardInterrupt:
+        print("\n\nUser interrupt detected! Stopping the training loop and proceeding to report results.")
 
     for i in range(args.loops):
         print(f"\n{'='*15} Auto-Tuner Episode {i+1}/{args.loops} {'='*15}")
@@ -178,28 +190,24 @@ def main():
         auto_tuner.learn(action=chosen_hps, reward=reward)
         run_history.append({'reward': reward, 'hps': chosen_hps})
     
-    print("\n" + "="*20 + " AUTO-TUNING COMPLETE " + "="*20)
-    if not auto_tuner.q_table:
-        print("No trials were completed.")
-        return
+    # Display the sequential run history
+    # This shows the outcome of each episode in the order it happened.
+    print("\n" + "="*20 + " Sequential Run-by-Run History " + "="*20)
+    for i, run in enumerate(run_history):
+        reward = run['reward']
+        hps = run['hps']
+        print(f"  Episode {i+1:02d}: Score = {reward:+.4f} | Hyperparameters: {hps}")
+
+
+    # print("\n" + "="*20 + " AUTO-TUNING COMPLETE " + "="*20)
+    # if not auto_tuner.q_table:
+    #     print("No trials were completed.")
+    #     return
         
     sorted_q_table = sorted(auto_tuner.q_table.items(), key=lambda item: item[1], reverse=True)
-    print("\nFinal discovered knowledge (Q-Table), from best to worst:")
-    for (hps_tuple, score) in sorted_q_table:
-        print(f"  Learned Score: {score:.4f} | Hyperparameters: {dict(hps_tuple)}")
     
     best_hps = dict(sorted_q_table[0][0])
     print(f"\nRECOMMENDED GENERATION HYPERPARAMETERS: {best_hps}")
-
-    print("\n" + "="*20 + " HIGH-PERFORMING INDIVIDUAL RUNS (Reward > 0.5) " + "="*20)
-    high_performers = [run for run in run_history if run['reward'] > 0.5]
-    
-    if not high_performers:
-        print("No individual runs achieved an average reward > 0.5.")
-    else:
-        high_performers.sort(key=lambda x: x['reward'], reverse=True)
-        for run in high_performers:
-             print(f"  Run Reward: {run['reward']:.4f} | Hyperparameters: {run['hps']}")
 
 if __name__ == "__main__":
     main()
