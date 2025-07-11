@@ -1,7 +1,7 @@
-# simulation_environment.py (Updated to print the specific error)
-import math
-import time
+# simulation_environment.py (Updated for Robustness and Clarity)
 
+# --- Define Target Parameters for Scoring ---
+# These are the "ideal" values we want the LLM to generate.
 TARGET_FREQ = 1.842e9
 TARGET_BW = 80e6
 TARGET_GAIN = 70.0
@@ -9,16 +9,23 @@ TARGET_AMPLITUDE = 0.7
 TARGET_AMPLITUDE_WIDTH = 0.05
 TARGET_SAMPLING_FREQ = 40e6
 TARGET_NUM_SAMPLES = 20000
+EXPECTED_DEVICE = "type=b200"
 
 def mock_run_simulation_and_get_reward(config: dict) -> float:
-    print(f"--- Running Simulation ---")
-    print(f"Config: {config}")
+    """
+    Calculates a score for a given configuration dictionary. This function is
+    written defensively to handle malformed or nonsensical input from the LLM.
+    """
+    # --- BLOCK 1: INITIAL VALIDATION AND PARSING ---
 
-    if not config:
-        print("Invalid config: The provided configuration was None or empty. Reward is -1.0.")
+    # Handle cases where the parser failed to produce a dictionary at all.
+    if not isinstance(config, dict):
+        print("[SIM] FATAL ERROR: Input is not a valid dictionary. Reward: -1.0")
         return -1.0
         
     try:
+        # Safely extract and cast all expected parameters.
+        # Using .get() with a default of 0 prevents KeyErrors if a key is missing.
         center_freq = float(config.get("center_frequency", 0))
         bandwidth = float(config.get("bandwidth", 0))
         tx_gain = float(config.get("tx_gain", 0))
@@ -26,17 +33,36 @@ def mock_run_simulation_and_get_reward(config: dict) -> float:
         amplitude_width = float(config.get("amplitude_width", 0))
         sampling_freq = float(config.get("sampling_freq", 0))
         num_samples = int(config.get("num_samples", 0))
-        
-        if config.get("device_args") != "type=b200":
-             return -0.2 
-             842e9
-    # --- CHANGED: Capture the exception as 'e' and print it ---
-    except (TypeError, ValueError, AttributeError) as e:
-        print(f"!!! VALUE PARSING FAILED !!! Error was: {e}")
-        print("Invalid config format or missing/invalid value types. Reward is -0.1.")
-        return -0.1
+        device_args = config.get("device_args", "")
 
-    # --- Score calculation (unchanged) ---
+    # This 'except' block catches errors if the LLM provides a non-numeric value
+    # (e.g., "high" instead of 60), leading to a TypeError or ValueError.
+    except (TypeError, ValueError) as e:
+        print(f"[SIM] FATAL ERROR: Type conversion failed ({e}). Reward: -1.0")
+        return -1.0
+
+    # --- BLOCK 2: LOGICAL VALIDATION ---
+    # Check for values that are syntactically correct but don't make sense.
+    validation_errors = []
+    if device_args != EXPECTED_DEVICE:
+        validation_errors.append(f"device_args was '{device_args}', expected '{EXPECTED_DEVICE}'")
+    if bandwidth <= 0:
+        validation_errors.append("bandwidth must be a positive number.")
+    if not (0 <= amplitude <= 1):
+        validation_errors.append("amplitude must be between 0 and 1.")
+
+    if validation_errors:
+        print(f"[SIM] LOGICAL ERROR: The following issues were found:")
+        for error in validation_errors:
+            print(f"  - {error}")
+        print("  Reward: -0.5")
+        return -0.5
+
+    # --- BLOCK 3: SCORE CALCULATION (The "Happy Path") ---
+    # If we reach this point, the config is valid and well-formed.
+    
+    # Each score component is calculated as 1.0 minus a normalized error.
+    # The max(0, ...) ensures scores don't become negative from large errors.
     freq_score = max(0.0, 1.0 - (abs(center_freq - TARGET_FREQ) / 200e6))
     bw_score = max(0.0, 1.0 - (abs(bandwidth - TARGET_BW) / (TARGET_BW * 2)))
     gain_score = max(0.0, 1.0 - (abs(tx_gain - TARGET_GAIN) / 50.0))
@@ -45,14 +71,17 @@ def mock_run_simulation_and_get_reward(config: dict) -> float:
     sampling_freq_score = max(0.0, 1.0 - (abs(sampling_freq - TARGET_SAMPLING_FREQ) / (TARGET_SAMPLING_FREQ * 2)))
     num_samples_score = max(0.0, 1.0 - (abs(num_samples - TARGET_NUM_SAMPLES) / (TARGET_NUM_SAMPLES * 2)))
 
+    # The final reward is a weighted sum of the component scores.
     final_reward = (freq_score * 0.30) + (bw_score * 0.15) + (gain_score * 0.10) + \
                    (amplitude_score * 0.10) + (amp_width_score * 0.05) + \
                    (sampling_freq_score * 0.15) + (num_samples_score * 0.15)
     
-    if final_reward > 0.98: final_reward = 1.0
+    # This design choice creates a small plateau of "perfect" scores.
+    if final_reward > 0.98: 
+        final_reward = 1.0
 
-    print(f"Scores -> Freq: {freq_score:.2f}, BW: {bw_score:.2f}, Gain: {gain_score:.2f}, Amp: {amplitude_score:.2f}, AmpW: {amp_width_score:.2f}, SampF: {sampling_freq_score:.2f}, NSamp: {num_samples_score:.2f}")
-    print(f"Result -> Reward: {final_reward:.3f}")
-    print(f"--------------------------\n")
+    # --- BLOCK 4: DEBUGGING AND RETURN ---
+    print(f"[SIM] DEBUG: Scores -> Freq:{freq_score:.2f}, BW:{bw_score:.2f}, Gain:{gain_score:.2f}, Amp:{amplitude_score:.2f}")
+    print(f"[SIM] RESULT: Final reward is {final_reward:.4f}")
     
     return final_reward

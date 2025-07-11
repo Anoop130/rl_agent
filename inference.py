@@ -107,7 +107,7 @@ def main():
     recommended_generation_config = GenerationConfig(
         max_new_tokens=250, pad_token_id=tokenizer.eos_token_id, do_sample=True,
         # --- RECOMMENDED HYPERPARAMETERS ---
-        temperature=0.7, top_p=0.85, repetition_penalty=1.1
+        temperature=0.512, top_p=0.905, repetition_penalty=1.080
     )
     print("\nUsing Recommended Hyperparameters:")
     print(f"  Temperature: {recommended_generation_config.temperature}, Top_p: {recommended_generation_config.top_p}, Repetition Penalty: {recommended_generation_config.repetition_penalty}")
