@@ -178,17 +178,6 @@ def main():
             
     except KeyboardInterrupt:
         print("\n\nUser interrupt detected! Stopping the training loop and proceeding to report results.")
-
-    for i in range(args.loops):
-        print(f"\n{'='*15} Auto-Tuner Episode {i+1}/{args.loops} {'='*15}")
-        chosen_hps = auto_tuner.get_action()
-        reward = execute_generation_run(
-            hparams=chosen_hps, 
-            model=model,
-            tokenizer=tokenizer
-        )
-        auto_tuner.learn(action=chosen_hps, reward=reward)
-        run_history.append({'reward': reward, 'hps': chosen_hps})
     
     # Display the sequential run history
     # This shows the outcome of each episode in the order it happened.

@@ -58,8 +58,7 @@ def mock_run_simulation_and_get_reward(config: dict) -> float:
         print("  Reward: -0.5")
         return -0.5
 
-    # --- BLOCK 3: SCORE CALCULATION (The "Happy Path") ---
-    # If we reach this point, the config is valid and well-formed.
+    # --- BLOCK 3: SCORE CALCULATION ---
     
     # Each score component is calculated as 1.0 minus a normalized error.
     # The max(0, ...) ensures scores don't become negative from large errors.
