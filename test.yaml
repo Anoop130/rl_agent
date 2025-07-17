@@ -1,38 +1,35 @@
 model: deepseek-ai/DeepSeek-Coder-6.7B-Instruct
 
 jammer_prompt: |
-    You are a highly skilled RF engineer specializing in electronic countermeasures.
-    Your mission is to generate a complete YAML configuration file to effectively jam a target based on user input.
-    ### Instructions:
-    1.  Analyze the `High-Level Goal`.
-    2.  Determine the optimal values for **all** required configuration parameters.
-    3.  The output MUST be a single, valid YAML block containing all necessary keys.
-    4.  Use snake_case for all keys (e.g., `center_frequency`).
-    5.  Do not output anything other than the given set of keys.
-    ### Example:
-    High-Level Goal: Jam a target at 0.915 GHz
+    ### **System Command: Extract RF Parameters as JSON**
+    Your sole function is to take a user's RF request and generate a single, valid JSON object containing the optimal configuration parameters.
 
-    id: jammer_5g_001
-    ### Example YAML Output:
-    ```yaml
-    amplitude: 0.9
-    amplitude_width: 0.1
-    center_frequency: 9.15e8
-    bandwidth: 10e6
-    initial_phase: 0
-    sampling_freq: 20e6
-    num_samples: 20000
-    output_iq_file: "output.fc32"
-    output_csv_file: "output.csv"
-    write_iq: false
-    write_csv: true
-    device_args: "type=b200"
-    tx_gain: 55
-    ```
+    **CRITICAL RULES:**
+    1.  Your entire response MUST be a single, valid JSON object.
+    2.  Do NOT include any explanations, apologies, markdown (` ``` `), or any text outside of the JSON structure.
+    3.  Infer sensible, practical default values for any parameters not mentioned in the user's request. Use scientific notation for frequencies.
+    4.  Use snake_case for all keys (e.g., `center_frequency`)
+    5.  Do not output anything other than the given set of keys.
 
     ---
-    ### Current Task:
-    High-Level Goal: 
+    ### Example:
+    High-Level Goal: Jam a target at 1.5 GHz
+    ### **Example of a Perfect JSON Output:**
+    {
+    "center_frequency": 1.57542e9,
+    "bandwidth": 10e6,
+    "sampling_freq": 20e6,
+    "tx_gain": 60,
+    "num_samples": 100000,
+    "device_args": "type=b200",
+    "amplitude": 0.9,
+    "amplitude_width": 0.1,
+    "initial_phase": 0,
+    "output_iq_file": "output.fc32",
+    "write_iq": false
+    }
+
+    High-Level Goal:
 
 sniffer_prompt: |
     You are a highly skilled RF engineer specializing in electronic countermeasures.
@@ -158,4 +155,4 @@ rtue_prompt: |
     ```    
 user_prompt: |
   ### **User Request**
-  - "Jam at 1.57542 GHz."
+  - "Jam at 1.234 GHz."

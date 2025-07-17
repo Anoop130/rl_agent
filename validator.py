@@ -109,10 +109,8 @@ class ResponseValidator:
 
         match = re.search(yaml_pattern, self.llm_response, re.DOTALL | re.IGNORECASE)
 
-        # Check if the regex found a match
         if match:
-            # The actual content is in the first captured group (the part in parentheses).
-            # .strip() removes any leading/trailing whitespace.
+
             config_string = match.group(1).strip()
 
             try:

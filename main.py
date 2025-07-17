@@ -114,8 +114,8 @@ if __name__ == '__main__':
     logging.info("="*20 + " END OF MODEL OUTPUT " + "="*20)
 
     # IMPORTANT: Use the clean response for validation
-    validator = ResponseValidator(clean_response)
-    logging.debug(f"Full response passed to validator: {clean_response}")
+    # validator = ResponseValidator(clean_response)
+    # logging.debug(f"Full response passed to validator: {clean_response}")
 
 
     while True:
@@ -126,22 +126,22 @@ if __name__ == '__main__':
         # 4. prompt model again with message error or success
 
 
-        try:
-            logging.info("Processing LLM response...")
-            logging.info("Validating configuration...")
+        # try:
+        #     # logging.info("Processing LLM response...")
+        #     logging.info("Validating configuration...")
 
-            validated_data = validator.process()
+        #     # validated_data = validator.process()
 
-            endpoint_type = validated_data.get("process_type")  # 'jammer' or 'sniffer'
-            request_json = validated_data
-            logging.info(f"Validated data: {validated_data}")
+        #     # endpoint_type = validated_data.get("process_type")  # 'jammer' or 'sniffer'
+        #     # request_json = validated_data
+        #     # logging.info(f"Validated data: {validated_data}")
 
-        except Exception as e:
-            logging.error(f"Validation failed: {e}")
-            logging.error(f"Validation errors: {validator.errors}")
+        # except Exception as e:
+        #     logging.error(f"Validation failed: {e}")
+        #     logging.error(f"Validation errors: {validator.errors}")
             
-            error_details = "; ".join(validator.errors) if validator.errors else str(e)
-            prompt = f"Previous configuration was invalid: {error_details}. Please provide a corrected RF system configuration for: {user_prompt}"
+        #     error_details = "; ".join(validator.errors) if validator.errors else str(e)
+        #     prompt = f"Previous configuration was invalid: {error_details}. Please provide a corrected RF system configuration for: {user_prompt}"
 
         logging.info("Generating next response...")
         inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(model.device)
@@ -159,8 +159,8 @@ if __name__ == '__main__':
         logging.info("="*20 + " END OF MODEL OUTPUT " + "="*20)
 
         # Use the clean response for validation
-        validator = ResponseValidator(clean_response)
-        logging.debug(f"Full response passed to validator: {clean_response}")
+        # validator = ResponseValidator(clean_response)
+        # logging.debug(f"Full response passed to validator: {clean_response}")
             
         
         time.sleep(1)
