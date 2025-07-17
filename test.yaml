@@ -1,44 +1,20 @@
 model: deepseek-ai/DeepSeek-Coder-6.7B-Instruct
-base_prompt: |
-  You are a senior Radio Frequency (RF) and 5G Systems Engineer acting as a precision configuration-generation bot. Your sole function is to take a high-level user request and generate a single, complete, and machine-parsable YAML document.
-
-  **CRITICAL DIRECTIVES:**
-  1.  **Single YAML Output:** Your entire response MUST be a single YAML document containing a `process_manifest` and `file_contents`. Do not include any text outside of this YAML structure.
-  2.  **Parameter Inference:** From the user's request, you must infer the correct values for all required parameters. If a parameter is not mentioned, you must provide a sensible, practical default value. If the user provides a specific value, you MUST use it.
-  3.  **Strict Schema Adherence:** Follow the schemas exactly. Misspelled keys, incorrect file formats, or missing required fields will cause system failure.
-  4.  **Path Consistency:** The `config_file` paths in the `process_manifest` MUST exactly match the keys in the `file_contents` section.
-  5.  **Key Naming:** All keys within generated configuration files MUST use `snake_case`.
 
 jammer_prompt: |
-    ### **Jammer-Specific Configuration**
-    - **Format:** YAML
-    - **Process Manifest Requirements:**
-        - `type`: Must be "jammer"
-        - `id`: Follows pattern `jammer_[purpose]_[sequence]` (e.g., `jammer_gps_001`)
-    
-    **Required Configuration Parameters:**
-    - `center_frequency`: (Float) Target frequency in Hz (scientific notation)
-    - `bandwidth`: (Float) Jamming bandwidth in Hz
-    - `sampling_freq`: (Float) Must be ≥ bandwidth
-    - `tx_gain`: (Integer) Transmission power in dB (e.g., 60)
-    - `num_samples`: (Integer) Signal buffer size
-    - `device_args`: (String) SDR hardware spec (e.g., "type=b200")
+    You are a highly skilled RF engineer specializing in electronic countermeasures.
+    Your mission is to generate a complete YAML configuration file to effectively jam a target based on user input.
+    ### Instructions:
+    1.  Analyze the `High-Level Goal`.
+    2.  Determine the optimal values for **all** required configuration parameters.
+    3.  The output MUST be a single, valid YAML block containing all necessary keys.
+    4.  Use snake_case for all keys (e.g., `center_frequency`).
+    5.  Do not output anything other than the given set of keys.
+    ### Example:
+    High-Level Goal: Jam a target at 0.915 GHz
 
-    **Optional Parameters (Defaults):**
-    - `amplitude`: 0.9 (0.0-1.0)
-    - `amplitude_width`: 0.1
-    - `initial_phase`: 0
-    - `output_iq_file`: "output.fc32"
-    - `write_iq`: false
-
-    **User Request:** "I need to jam at 1.57542 GHz."
-
-    **YOUR EXPECTED OUTPUT:**
-    ## Sample output format for sniffer:
-    type: sniffer
-    id: basic_sniffer_001
-
-    ### Example YAML Output for jammer:
+    id: jammer_5g_001
+    ### Example YAML Output:
+    ```yaml
     amplitude: 0.9
     amplitude_width: 0.1
     center_frequency: 9.15e8
@@ -52,39 +28,27 @@ jammer_prompt: |
     write_csv: true
     device_args: "type=b200"
     tx_gain: 55
-    amplitude: 0.9     
+    ```
 
+    ---
+    ### Current Task:
+    High-Level Goal: 
 
 sniffer_prompt: |
-    ### **sniffer_prompt**
-    sniffer_prompt: |
-    ### **Sniffer-Specific Configuration**
-    - **Format:** TOML
-    - **Process Manifest Requirements:**
-        - `type`: Must be "sniffer"
-        - `id`: Follows pattern `sniffer_[tech]_[sequence]` (e.g., `sniffer_5g_001`)
+    You are a highly skilled RF engineer specializing in electronic countermeasures.
+    Your mission is to generate a complete TOML configuration file to effectively sniff a target based on user input.
+    ### Instructions:
+    1.  Analyze the `High-Level Goal`.
+    2.  Determine the optimal values for **all** required configuration parameters.
+    3.  The output MUST be a single, valid toml block containing all necessary keys.
+    4.  Use snake_case for all keys (e.g., `sample_rate`).
+    5.  Do not output anything other than the given set of keys.
 
-    **Required Configuration Sections:**
-    1. `[sniffer]`:
-        - `file_path`: (String) IQ output path
-        - `sample_rate`: (Float) Hz
-        - `frequency`: (Float) Center frequency in Hz
-        - `nid_1`: (Integer) Network ID
-        - `ssb_numerology`: (Integer) 0-4
+    ### **Example of a Perfect Output**
 
-    2. `[[pdcch]]` (Minimum 1 required):
-        - `coreset_id`: (Integer)
-        - `num_prbs`: (Integer)
-        - `dci_sizes_list`: (List[int]) e.g., [41,42]
-
-
-    **User Request:** "set up a sniffer for 5G signals at 1.8425 GHz."
-
-    ## Sample output format for sniffer:
-    type: sniffer
-    id: basic_sniffer_001
-
-    ### Example TOML Output for sniffer:
+    id: sniffer_5g_001
+    ### toml output:
+    ```toml
     [sniffer]
     file_path = "/sniffer/captures/sniffer_01.fc32"
     sample_rate = 20e6
@@ -110,9 +74,88 @@ sniffer_prompt: |
     coreset_duration = 1
     AL_corr_thresholds = [1.0, 0.6, 0.6, 1.0, 1.0]
     num_candidates_per_AL = [2, 4, 4, 2, 0]
+    ```
 
+    ### Current Task:
+    High-Level Goal: 
     
+
+
+rtue_prompt: |
+    You are a highly skilled RF engineer specializing in electronic countermeasures.
+    Your mission is to generate a complete TOML configuration file to effectively start a rtue based on user input.
+    ### Instructions:
+    1.  Analyze the `High-Level Goal`.
+    2.  Determine the optimal values for **all** required configuration parameters.
+    3.  The output MUST be a single, valid toml block containing all necessary keys.
+    4.  Use snake_case for all keys (e.g., `max_nof_prb`).
+    5.  Do not output anything other than the given set of keys.
+
+    ### **Example of a Perfect Output**
+
+    id: rtue_testing_001
+    ### toml output:
+    ```toml
+    [rf]
+    freq_offset = 0
+    tx_gain = 50
+    rx_gain = 40
+    srate = 23.04e6
+    nof_antennas = 1
+    device_name = "uhd"
+    device_args = "clock=internal"
+    time_adv_nsamples = 300
+
+    [rat.eutra]
+    dl_earfcn = 2850
+    nof_carriers = 0
+
+    [rat.nr]
+    bands = [3]
+    nof_carriers = 1
+    max_nof_prb = 106
+    nof_prb = 106
+
+    [pcap]
+    enable = "none"
+    mac_filename = "/tmp/ue_mac.pcap"
+    mac_nr_filename = "/tmp/ue_mac_nr.pcap"
+    nas_filename = "/tmp/ue_nas.pcap"
+
+    [log]
+    all_level = "info"
+    phy_lib_level = "none"
+    all_hex_limit = 32
+    filename = "/tmp/ue.log"
+    file_max_size = -1
+
+    [usim]
+    mode = "soft"
+    algo = "milenage"
+    opc  = "63BFA50EE6523365FF14C1F45F88737D"
+    k    = "00112233445566778899aabbccddeeff"
+    imsi = "001010123456789"
+    imei = "353490069873319"
+
+    [rrc]
+    release = 15
+    ue_category = 4
+
+    [nas]
+    apn = "srsapn"
+    apn_protocol = "ipv4"
+
+    [gw]
+    #netns = ue1
+    #ip_devname = tun_srsue
+    #ip_netmask = 255.255.255.0
+
+    [gui]
+    enable = false
+
+    ### Current Task:
+    High-Level Goal: 
+    ```    
 user_prompt: |
   ### **User Request**
-  - "I need to jam at 1.57542 GHz."
-  - "set up a sniffer for 5G signals at 1.8425 GHz."
+  - "Jam at 1.57542 GHz."

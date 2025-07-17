@@ -77,12 +77,8 @@ if __name__ == '__main__':
 
     logging.info("="*20 + " MODEL LOADED " + "="*20)
 
-    # TODO: explain using base prompt (from config)
-    base_prompt = Config.options.get("base_prompt", None)
     user_prompt = Config.options.get("user_prompt", None)
 
-    if not base_prompt:
-        raise RuntimeError(f"base prompt not provided in {Config.filename}")
     
     if not user_prompt:
         raise RuntimeError(f"user prompt not provided in {Config.filename}")
@@ -98,23 +94,29 @@ if __name__ == '__main__':
 
 
     if "jam" in user_prompt.lower():
-        sniffer_prompt = Config.options.get("sniffer_prompt", None)
-        prompt = base_prompt + user_prompt + sniffer_prompt
+        sniffer_prompt = Config.options.get("jammer_prompt", None)
+        prompt = user_prompt + sniffer_prompt
 
     if "sniffer" in user_prompt.lower():
         sniffer_prompt = Config.options.get("sniffer_prompt", None)
-        prompt = base_prompt + user_prompt + sniffer_prompt  
+        prompt = user_prompt + sniffer_prompt  
 
     inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(model.device)
     output_tokens = model.generate(**inputs, generation_config=generation_config)
-    response_str = tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
 
-    # TODO: class that verifies configuration and gets other info (endpoint, data to send, what component etc)
+    input_length = inputs['input_ids'].shape[1]
+    newly_generated_tokens = output_tokens[0, input_length:]
+    clean_response = tokenizer.decode(newly_generated_tokens, skip_special_tokens=True)
 
-    validator = ResponseValidator(response_str[0])
-    logging.debug(f"Response from model: {response_str[0]}")
+    # Log the clean response explicitly
+    logging.info("="*20 + " MODEL GENERATED OUTPUT " + "="*20)
+    logging.info(clean_response)
+    logging.info("="*20 + " END OF MODEL OUTPUT " + "="*20)
 
-    logging.debug(response_str)
+    # IMPORTANT: Use the clean response for validation
+    validator = ResponseValidator(clean_response)
+    logging.debug(f"Full response passed to validator: {clean_response}")
+
 
     while True:
         # TODO: loop over the following steps
@@ -128,9 +130,9 @@ if __name__ == '__main__':
             logging.info("Processing LLM response...")
             logging.info("Validating configuration...")
 
-            validated_data = validator.process_response()
+            validated_data = validator.process()
 
-            endpoint_type = validated_data.get("type")  # 'jammer' or 'sniffer'
+            endpoint_type = validated_data.get("process_type")  # 'jammer' or 'sniffer'
             request_json = validated_data
             logging.info(f"Validated data: {validated_data}")
 
@@ -139,14 +141,27 @@ if __name__ == '__main__':
             logging.error(f"Validation errors: {validator.errors}")
             
             error_details = "; ".join(validator.errors) if validator.errors else str(e)
-            next_prompt = base_prompt + f"Previous configuration was invalid: {error_details}. Please provide a corrected RF system configuration for: {current_task}"
+            prompt = f"Previous configuration was invalid: {error_details}. Please provide a corrected RF system configuration for: {user_prompt}"
 
         logging.info("Generating next response...")
-        inputs = tokenizer(next_prompt, return_tensors="pt", padding=True, truncation=True).to(model.device)
+        inputs = tokenizer(prompt, return_tensors="pt", padding=True, truncation=True).to(model.device)
         output_tokens = model.generate(**inputs, generation_config=generation_config)
         response_str = tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
-        
-        validator = ResponseValidator(response_str[0])
+
+        input_length = inputs['input_ids'].shape[1]
+
+        newly_generated_tokens = output_tokens[0, input_length:]
+        clean_response = tokenizer.decode(newly_generated_tokens, skip_special_tokens=True)
+
+        # Log the clean response explicitly
+        logging.info("="*20 + " MODEL GENERATED OUTPUT " + "="*20)
+        logging.info(clean_response)
+        logging.info("="*20 + " END OF MODEL OUTPUT " + "="*20)
+
+        # Use the clean response for validation
+        validator = ResponseValidator(clean_response)
+        logging.debug(f"Full response passed to validator: {clean_response}")
+            
         
         time.sleep(1)
     
