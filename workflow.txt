@@ -1,0 +1,70 @@
+# validator.py
+#
+# =================================================================================================
+#                                       Validator Flowchart
+# =================================================================================================
+#
+#  main.py calls validator.validate(llm_response, config_type)
+#                  |
+#                  V
+#      +-------------------------+
+#      |   1. _extract_json()    |
+#      | (Find JSON in response) |
+#      +-------------------------+
+#           |           |
+#   (Failure: No JSON)  | (Success: Found JSON string)
+#           |           V
+#           |     +----------------------+
+#           |     |  2. _parse_json()    |
+#           |     | (String -> Dict)     |
+#           |     +----------------------+
+#           |         |            |
+#           | (Failure: Bad Syntax)| (Success: Valid Dict)
+#           |         |            V
+#           |         |      +------------------------------------------+
+#           |         |      | 3. Branch based on config_type           |
+#           |         |      |    (jammer, sniffer, or rtue)            |
+#           |         |      +------------------------------------------+
+#           |         |            |        |              |
+#           |         |      (Jammer)   (Sniffer)        (RT-UE)
+#           |         |            |        |              |
+#           |         |            V        V              V
+#           |         |      +--------+ +---------+ +-----------------------------------+
+#           |         |      | Validate | | Validate  | | Validate schema w/ required_keys  |
+#           |         |      | schema & | | schema &  | | (Checks required keys are present,|
+#           |         |      | values   | | values    | | and all present keys have        |
+#           |         |      +--------+ +---------+ | correct types)                    |
+#           |         |            |        |       +-----------------------------------+
+#           |         |            |________|______________|
+#           |         |                     |
+#           |         |                     V
+#           |         +------------>+---------------------------+
+#           |                       |   4. Check self.errors    |
+#           +---------------------->|     (Is the list empty?)  |
+#                                   +---------------------------+
+#                                             |            |
+# (FAILURE: Errors exist)---------------------+            | (SUCCESS: No errors)
+#            |                                               V
+#            |                             +--------------------------------------+
+#            |                             |  5. _format_validated_data()         |
+#            |                             |   (Format Dict into final string)    |
+#            |                             +--------------------------------------+
+#            |                                  |        |               |
+#            |                            (Jammer)   (Sniffer)         (RT-UE)
+#            |                                  |        |               |
+#            |                                  V        V               V
+#            |                             +--------+ +---------+ +-----------------+
+#            |                             | Format | | Format  | | Reconstruct &   |
+#            |                             | as YAML| | as TOML | | Format as TOML  |
+#            |                             +--------+ +---------+ +-----------------+
+#            |                                  |________|_______________|
+#            |                                           |
+#            +------------------------------------+      V
+#                                                 +--------------------------------+
+#                                                 | 6. Assemble & Return Final Dict|
+#                                                 | {"type":..., "id":..., "config":...} |
+#                                                 +--------------------------------+
+#                                                          |
+#                                                          V
+#                                                        main.py
+#
