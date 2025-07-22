@@ -1,4 +1,7 @@
 model: deepseek-ai/DeepSeek-Coder-6.7B-Instruct
+# model : TinyLlama/TinyLlama-1.1B-Chat-v1.0
+# model: codellama/CodeLlama-7b-Instruct-hf
+
 
 jammer_prompt: |
   Your sole task is to take a user's RF jamming request and generate a **valid JSON object** containing the optimal configuration parameters.
@@ -46,51 +49,58 @@ jammer_prompt: |
     "tx_gain": 55
   }
 
+  **DO NOT OMIT ANY FIELDS. DO NOT explain anything. DO NOT include code blocks or formatting.  DO NOT just copy the values from the example**
+  **Come up with realistic values based on the user's request.**
+  Your output MUST be a single valid JSON object that includes the entire schema above.
+
   ### USER REQUEST:
 
 
 sniffer_prompt: |
-  You are a highly skilled RF engineer specializing in electronic countermeasures.
-  Your sole task is to generate a valid **JSON object** representing the optimal sniffer configuration based on the user's high-level goal.
+  You are an RF systems assistant. Your **only** job is to output a **valid JSON configuration** for a sniffer based on the user's high-level goal.
 
-  ### CRITICAL RULES:
-  1. Your response **MUST** be a single, valid **JSON object** — no code fences, no explanations, no markdown, no Python code.
-  2. Do **NOT** include function definitions, comments, or any extra text.
+  ### ABSOLUTE RULES:
+  1. Return **ONLY** valid JSON — nothing else. No text. No markdown. No comments. No Python or YAML.
+  2. JSON must include **every key listed** in the schema below. DO NOT OMIT any fields — even if they are not mentioned by the user.
   3. Use **snake_case** for all keys.
-  4. Return **only** the required keys listed below — do not omit or rename them.
-  5. If the user omits a parameter, **infer a reasonable default**.
-  6. Use **scientific notation** for frequency-related fields (e.g., `2.45e9`).
-  7. If nested values (like `[[pdcch]]`) are required, represent them as a **list of JSON objects** under the appropriate key.
+  4. Use **scientific notation** for any frequency-related values (e.g., 9.51e9).
+  5. Wrap the full configuration in a top-level JSON object.
+  6. All `pdcch` fields have been flattened. Do not nest anything.
 
-  ### Required JSON Structure:
+  ### Example Request:
+  Generate a config for a sniffer to capture at 9.51 GHz
 
+  ### Example output:
   {
     "id": "sniffer_5g_001",
     "file_path": "/sniffer/captures/sniffer_01.fc32",
-    "sample_rate": 20e6,
-    "frequency": 2.45e9,
+    "sample_rate": 2.0e7,
+    "frequency": 9.51e9,
     "nid_1": 101,
     "ssb_numerology": 0,
-    "pdcch": [
-      {
-        "coreset_id": 1,
-        "subcarrier_offset": 48,
-        "num_prbs": 50,
-        "numerology": 0,
-        "dci_sizes_list": [41, 42],
-        "scrambling_id_start": 1,
-        "scrambling_id_end": 10,
-        "rnti_start": 65500,
-        "rnti_end": 65510,
-        "interleaving_pattern": "non-interleaved",
-        "coreset_duration": 1,
-        "AL_corr_thresholds": [1.0, 0.6, 0.6, 1.0, 1.0],
-        "num_candidates_per_AL": [2, 4, 4, 2, 0]
-      }
-    ]
+    "pdcch_coreset_id": 1,
+    "pdcch_subcarrier_offset": 48,
+    "pdcch_num_prbs": 50,
+    "pdcch_numerology": 0,
+    "pdcch_dci_sizes_list": [41, 42],
+    "pdcch_scrambling_id_start": 1,
+    "pdcch_scrambling_id_end": 10,
+    "pdcch_rnti_start": 65500,
+    "pdcch_rnti_end": 65510,
+    "pdcch_interleaving_pattern": "non-interleaved",
+    "pdcch_coreset_duration": 1,
+    "pdcch_AL_corr_thresholds": [1.0, 0.6, 0.6, 1.0, 1.0],
+    "pdcch_num_candidates_per_AL": [2, 4, 4, 2, 0]
   }
 
+  **DO NOT OMIT ANY FIELDS. DO NOT explain anything. DO NOT include code blocks or formatting.  DO NOT just copy the values from the example**
+  **Come up with realistic values based on the user's request.**
+  Your output MUST be a single valid JSON object that includes the entire schema above.
+
   ### USER REQUEST:
+
+
+
 
     
 
@@ -172,4 +182,4 @@ rtue_prompt: |
     ```    
 user_prompt: |
   ### **User Request**
-  - "Jam at 1.234 GHz."
+  - "Generate a sniffer configuration to capture signals at 9.51 GHz"
