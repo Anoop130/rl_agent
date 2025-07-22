@@ -35,18 +35,18 @@ jammer_prompt: |
   ### Example Output:
   {
     "id": "jammer_001",
-    "center_frequency": 9.51e9,
-    "bandwidth": 10e6,
-    "amplitude": 0.8,
-    "amplitude_width": 0.1,
-    "initial_phase": 0,
-    "sampling_freq": 20e6,
-    "num_samples": 20000,
+    "center_frequency": number,
+    "bandwidth": number,
+    "amplitude": number,
+    "amplitude_width": number,
+    "initial_phase": number,
+    "sampling_freq": number,
+    "num_samples": number,
     "output_iq_file": "output.fc32",
     "output_csv_file": "output.csv",
-    "write_iq": false,
-    "write_csv": true,
-    "tx_gain": 55
+    "write_iq": bool,
+    "write_csv": bool,
+    "tx_gain": number
   }
 
   **DO NOT OMIT ANY FIELDS. DO NOT explain anything. DO NOT include code blocks or formatting.  DO NOT just copy the values from the example**
@@ -74,23 +74,23 @@ sniffer_prompt: |
   {
     "id": "sniffer_5g_001",
     "file_path": "/sniffer/captures/sniffer_01.fc32",
-    "sample_rate": 2.0e7,
-    "frequency": 9.51e9,
-    "nid_1": 101,
-    "ssb_numerology": 0,
-    "pdcch_coreset_id": 1,
-    "pdcch_subcarrier_offset": 48,
-    "pdcch_num_prbs": 50,
-    "pdcch_numerology": 0,
-    "pdcch_dci_sizes_list": [41, 42],
-    "pdcch_scrambling_id_start": 1,
-    "pdcch_scrambling_id_end": 10,
-    "pdcch_rnti_start": 65500,
-    "pdcch_rnti_end": 65510,
+    "sample_rate": number,
+    "frequency": number,
+    "nid_1": number,
+    "ssb_numerology": number,
+    "pdcch_coreset_id": number,
+    "pdcch_subcarrier_offset": number,
+    "pdcch_num_prbs": number,
+    "pdcch_numerology": number,
+    "pdcch_dci_sizes_list": array of numbers with 2 elements,
+    "pdcch_scrambling_id_start": number,
+    "pdcch_scrambling_id_end": number,
+    "pdcch_rnti_start": number,
+    "pdcch_rnti_end": number,
     "pdcch_interleaving_pattern": "non-interleaved",
-    "pdcch_coreset_duration": 1,
-    "pdcch_AL_corr_thresholds": [1.0, 0.6, 0.6, 1.0, 1.0],
-    "pdcch_num_candidates_per_AL": [2, 4, 4, 2, 0]
+    "pdcch_coreset_duration": number,
+    "pdcch_AL_corr_thresholds": array of numbers with 5 elements,
+    "pdcch_num_candidates_per_AL": array of numbers with 5 elements,
   }
 
   **DO NOT OMIT ANY FIELDS. DO NOT explain anything. DO NOT include code blocks or formatting.  DO NOT just copy the values from the example**
