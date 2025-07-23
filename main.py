@@ -68,9 +68,13 @@ def generate_response(model, tokenizer, prompt_content: str) -> str:
     clean_response = tokenizer.decode(newly_generated_tokens, skip_special_tokens=True).strip()
     return clean_response
 
+    # TODO: use llm for intent determination
+
+
 
 if __name__ == '__main__':
     configure()
+
 
     # --- Model and Tokenizer Setup    ---
     model_str = Config.options.get("model")
@@ -89,8 +93,42 @@ if __name__ == '__main__':
         model.config.pad_token_id = model.config.eos_token_id
     logging.info("="*20 + " MODEL LOADED " + "="*20)
 
+    user_request_text, planner_prompt = Config.options.get("user_prompt", ""), Config.options.get("planner_prompt", "")
+    logging.info(f"User prompt: {user_request_text}")
+    logging.info(f"Planner prompt: {planner_prompt}")
+    if not user_request_text:
+        logging.error("User prompt not specified in config")
+        sys.exit(1)
+
+    if not planner_prompt:
+        logging.error("Planner prompt not specified in config")
+        sys.exit(1)
+    user_plan_raw = generate_response(model, tokenizer, planner_prompt + user_request_text)
+
+
+    logging.info(f"The output of planner: {user_plan_raw}")
+    logging.info("+++++++++++++++++++++++++++++++++++++++")
+
+    validator = ResponseValidator(user_plan_raw, config_type="plan")
+    validated_plan = validator.validate()
+
+    if not validated_plan or "steps" not in validated_plan:
+        logging.error("Planner output could not be validated as a plan.")
+
+    planner_steps = validated_plan["steps"]
+
+    logging.info(f"Validated planner steps: {planner_steps}")
+
+    for step in planner_steps:
+        component = step.get("component")
+        instruction = step.get("additional_instruction")
+        logging.info(f"Executing step for component: {component} with instruction: {instruction}")  
+        if not component or not instruction:
+            logging.warning(f"Skipping invalid step: {step}")
+            continue
+    # =====================================================
+
     # --- Initial Prompt Construction    ---
-    user_request_text = Config.options.get("user_prompt", "")
     config_type, system_prompt = None, ""
     if "sniffer" in user_request_text.lower():
         config_type, system_prompt = "sniffer", Config.options.get("sniffer_prompt", "")
