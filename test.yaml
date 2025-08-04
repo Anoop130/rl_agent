@@ -3,7 +3,7 @@ model: deepseek-ai/DeepSeek-Coder-6.7B-Instruct
 # model: codellama/CodeLlama-7b-Instruct-hf
 
 
-jammer_prompt: |
+jammer: |
   Your sole task is to take a user's RF jamming request and generate a **valid JSON object** containing the optimal configuration parameters.
   The configuration's goal is to start a jammer that can effectively jam the specified frequency.
 
@@ -22,7 +22,7 @@ jammer_prompt: |
 
   ### Example Output:
   {
-    "id": "jammer_sequence_number",
+    "id": "jammer_sequence_number", example: "jammer_01",
     "center_frequency": number,
     "bandwidth": number,
     "amplitude": number,
@@ -45,7 +45,7 @@ jammer_prompt: |
   ### USER REQUEST:
 
 
-sniffer_prompt: |
+sniffer: |
   You are an RF systems assistant. Your **only** job is to output a **valid JSON configuration** for a sniffer based on the user's high-level goal.
   The configuration's purpose is to capture signals at a specified frequency.
 
@@ -62,7 +62,7 @@ sniffer_prompt: |
 
   ### Example output:
   {
-    "id": "sniffer_sequence_number",
+    "id": "sniffer_sequence_number" example: "sniffer_01",
     "file_path": "/sniffer/captures/sniffer_01.fc32",
     "sample_rate": number,
     "frequency": number,
@@ -90,7 +90,7 @@ sniffer_prompt: |
   ### USER REQUEST:
 
 
-rtue_prompt: |
+rtue: |
   You are an RF systems assistant. Your **only** job is to output a **valid JSON configuration** for a sniffer based on the user's high-level goal.
   The configuration's purpose is to capture signals at a specified frequency.
 
@@ -163,45 +163,34 @@ rtue_prompt: |
 
 user_prompt: |
   ### **User Request**
-  - "Generate a rtue configuration"
+  - "I want to test the sniffer and the rtue"
 
-planner_prompt: |
-  You are an RF engineering planner assistant. Your job is to interpret the user’s request and choose the appropriate component to start from the list below.
+intent_prompt: |
+  You are an expert RF assistant.
 
-  Components: sniffer, jammer, rtue
-  ### Format:
-  {
-    "component": "sniffer/jammer/rtue",
-  }
+  Your task is to identify which of the following components are mentioned in the user's request:
+  - "rtue"
+  - "sniffer"
+  - "jammer"
 
-  ### Example User Request:
-  Create jammer config to capture at 5GHz frequency
+  Ignore parameters like frequency, gain, or time — your only job is to choose which components are required.
 
-  ### Example Output:
-  {
-    "component": "jammer",
-  }
-  
-  ### Example User Request:
-  I want to test the rtue
+  Output a valid JSON list like:
+  ["rtue", "sniffer"]
 
-  #Example Output:
-  
-  {
-    "component": "rtue",
-  }
-  
+  **Only use those three values.**
+  **Do not explain anything.**
+  **If rtue is mentioned that should always come first**
 
-  ### Example User Request:
-  Lets start a sniffer
-  ### Example Output:
-  {
-    "component": "sniffer",
-  }
+  ---
+  Examples:
 
-  **ONLY OUTPUT THE JSON ARRAY. DO NOT ADD ANY EXPLANATION OR TEXT.**
+  User: "Sniff the spectrum and jam the rtue at 3.5GHz"
+  Output: ["rtue", "sniffer", "jammer"]
 
-  
-  **User Request:**
+  User: "Just sniff"
+  Output: ["sniffer"]
 
-
+  ---
+  Now classify this:
+  User: "{{ user_prompt }}"

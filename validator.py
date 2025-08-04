@@ -1,6 +1,5 @@
 # validator.py
 # Updated to return a structured dictionary: {type, id, config}
-# And to handle the simplified planner response format.
 
 import re
 import json
@@ -19,6 +18,7 @@ class ResponseValidator:
         logging.info(f"Validator initialized for type: '{self.config_type}'")
 
         # --- Schema Definitions ---
+        # Jammer schema defines all expected keys and their types. The prompt forces all keys to be present.
         self.jammer_schema = {
             "id": str, "center_frequency": (float, int), "bandwidth": (float, int),
             "amplitude": (float, int), "amplitude_width": (float, int),
@@ -26,6 +26,7 @@ class ResponseValidator:
             "num_samples": int, "output_iq_file": str, "output_csv_file": str,
             "write_iq": bool, "write_csv": bool, "tx_gain": (float, int), "device_args": str
         }
+        # Sniffer schema defines all flattened keys. The prompt also forces all keys to be present.
         self.sniffer_schema = {
             "id": str, "file_path": str, "sample_rate": (float, int),
             "frequency": (float, int), "nid_1": int, "ssb_numerology": int,
@@ -38,11 +39,13 @@ class ResponseValidator:
             "pdcch_num_candidates_per_AL": list
         }
 
+        # Defines the minimum set of keys that MUST be present for an RT-UE config.
         self.rtue_required_keys = [
             'id', 'rf_srate', 'rf_tx_gain', 'rf_rx_gain', 'rat_nr_bands',
             'rat_nr_nof_prb', 'usim_imsi', 'nas_apn'
         ]
 
+        # Defines all possible valid keys for an RT-UE config and their types for validation.
         self.rtue_full_schema = {
             "id": str, "rf_freq_offset": int, "rf_tx_gain": int, "rf_rx_gain": int,
             "rf_srate": (float, int), "rf_nof_antennas": int, "rf_device_name": str,
@@ -57,90 +60,96 @@ class ResponseValidator:
             "gw_ip_netmask": str, "general_metrics_influxdb_enable": bool, "general_metrics_influxdb_url": str,
             "general_metrics_influxdb_port": int, "general_metrics_influxdb_org": str, "general_metrics_influxdb_token": str,
             "general_metrics_influxdb_bucket":str, "general_metrics_period_secs": float, "general_ue_data_identifier": str
-        }
+        } 
 
-    def validate(self) -> dict | None:
+        self.valid_components = {"rtue", "sniffer", "jammer"} 
+
+    def validate(self) -> dict | list | None:
         json_str = self._extract_json()
-        if not json_str: return None
+        if not json_str: return None # Exit early if no JSON is found
 
         self.parsed_data = self._parse_json(json_str)
-        if not self.parsed_data: return None
+        if not self.parsed_data: return None # Exit early if JSON is invalid
 
+        if self.config_type == "intent":
+            if not isinstance(self.parsed_data, list):
+                self.errors.append("Intent must be a JSON array/list")
+                return None
+            logging.info(f"Validating intent list: {self.parsed_data}")
+            self._validate_intent_values(self.parsed_data)
+            
+            if self.errors:
+                return None
+            return self.parsed_data
+            
+        # Branch validation logic based on the config type determined in main.py
         if self.config_type == "jammer":
+            # For jammer, all keys in its schema are considered required.
             self._validate_schema(self.parsed_data, self.jammer_schema, list(self.jammer_schema.keys()))
             self._validate_jammer_values(self.parsed_data)
         elif self.config_type == "sniffer":
+            # Same for sniffer, all keys are required.
             self._validate_schema(self.parsed_data, self.sniffer_schema, list(self.sniffer_schema.keys()))
             self._validate_sniffer_values(self.parsed_data)
         elif self.config_type == "rtue":
+            # For RT-UE, we check for a specific subset of required keys.
             self._validate_schema(self.parsed_data, self.rtue_full_schema, self.rtue_required_keys)
-            
-        elif self.config_type == "plan":
-            # MODIFICATION START: Validate the new, simpler planner output: {"component": "..."}
-            if not isinstance(self.parsed_data, dict):
-                self.errors.append("Expected planner output to be a JSON object, e.g., {\"component\": \"sniffer\"}.")
-                return None
-
-            # Check for exactly one key, which must be 'component'
-            if list(self.parsed_data.keys()) != ['component']:
-                 self.errors.append("Planner output JSON must contain exactly one key: 'component'.")
-                 return None
-
-            component = self.parsed_data.get("component")
-            allowed_components = ["sniffer", "jammer", "rtue"]
-            
-            if component not in allowed_components:
-                self.errors.append(f"Invalid component value '{component}'. Must be one of {allowed_components}.")
-                return None
-            
-            # If validation passes, return the structured plan. This is a terminal operation for "plan".
-            return {
-                "type": "plan",
-                "component": component
-            }
-            # MODIFICATION END
         else:
             self.errors.append(f"Unknown or unspecified config_type: '{self.config_type}'.")
 
+        # If any validation step added errors, fail now.
         if self.errors:
             return None
 
+        # On success, format the data into the final config string.
         config_string = self._format_validated_data(self.parsed_data)
         if not config_string and not self.errors:
             self.errors.append("Formatting to YAML/TOML failed.")
             return None
 
+        # Return the final structured dictionary for main.py to use.
         return {
             "type": self.config_type,
             "id": self.parsed_data.get("id"),
             "config_str": config_string
         }
 
+
+
     def _format_validated_data(self, validated_data: dict) -> str:
+        # Create a copy so we don't modify the original parsed data.
         data_for_formatting = validated_data.copy()
+        
+        # The 'id' is for the manifest, not the file content, so remove it before formatting.
         data_for_formatting.pop('id', None)
 
         if self.config_type == "jammer":
+            # Convert the dictionary to a YAML formatted string.
             return yaml.dump(data_for_formatting, sort_keys=False, indent=2)
-
+        
         elif self.config_type == "sniffer":
             sniffer_section = {}
             pdcch_section = {}
+            # Re-create the nested TOML structure from the flat JSON keys.
             for key, value in data_for_formatting.items():
                 if key.startswith("pdcch_"):
+                    # "pdcch_coreset_id" becomes "coreset_id" in the pdcch section.
                     new_key = key.replace("pdcch_", "", 1)
                     pdcch_section[new_key] = value
                 elif key in ["file_path", "sample_rate", "frequency", "nid_1", "ssb_numerology"]:
                     sniffer_section[key] = value
-
+            
             final_toml_structure = {"sniffer": sniffer_section, "pdcch": [pdcch_section]}
-            return toml.dumps(final_toml_structure)
-
+            return toml.dumps(final_toml_structure) # Convert dict to TOML string.
+            
         elif self.config_type == "rtue":
+            # Delegate to the specific rtue formatter.
             return self._format_rtue_conf(data_for_formatting)
         return ""
+        
 
     def _format_rtue_conf(self, flat_data: dict) -> str:
+
         section_map = {
             'rf': 'rf_', 'rat.eutra': 'rat_eutra_', 'rat.nr': 'rat_nr_',
             'pcap': 'pcap_', 'log': 'log_', 'usim': 'usim_', 'rrc': 'rrc_',
@@ -159,6 +168,7 @@ class ResponseValidator:
             if section_content:
                 config[section_name] = section_content
 
+        # Write to string buffer in INI format
         with StringIO() as output:
             config.write(output)
             return output.getvalue()
@@ -167,48 +177,76 @@ class ResponseValidator:
         return self.errors
 
     def _extract_json(self):
-        match = re.search(r"```(?:json)?\n([\s\S]*?)```", self.raw_response)
-        if match:
-            return match.group(1).strip()
-        
-        # This handles cases where the LLM just outputs the JSON directly.
-        start = self.raw_response.find('{')
-        end = self.raw_response.rfind('}')
-        if start != -1 and end != -1:
-            return self.raw_response[start:end+1]
-        
-        self.errors.append("No valid JSON structure (e.g., '{...}') found in the response.")
+        # Try extracting from markdown-style fenced code blocks first
+        fenced_blocks = re.findall(r"```(?:json)?\n([\s\S]*?)```", self.raw_response)
+        for block in fenced_blocks:
+            try:
+                parsed = json.loads(block.strip())
+                return block.strip()
+            except json.JSONDecodeError:
+                continue
+
+        # Fall back to trying the largest array or object in the text
+        bracket_pairs = [('[', ']'), ('{', '}')]
+        for open_bracket, close_bracket in bracket_pairs:
+            start = self.raw_response.find(open_bracket)
+            end = self.raw_response.rfind(close_bracket)
+            if start != -1 and end != -1:
+                candidate = self.raw_response[start:end+1].strip()
+                try:
+                    parsed = json.loads(candidate)
+                    return candidate
+                except json.JSONDecodeError:
+                    continue
+
+        self.errors.append("No valid JSON structure (array or object) could be parsed.")
         return None
+
 
     def _parse_json(self, json_str: str):
         try:
-            # Handle potential trailing commas left by the LLM
-  
             return json.loads(json_str)
         except json.JSONDecodeError as e:
             self.errors.append(f"JSON parsing failed: {str(e)}")
             return None
 
     def _validate_schema(self, data: dict, schema: dict, required_keys: list = None):
+        # check if all required keys are present in the data.
         if required_keys:
             for key in required_keys:
                 if key not in data:
                     self.errors.append(f"Missing required key: '{key}'")
-
+        
+        # check for type correctness and find any unexpected keys.
         for key, value in data.items():
             if key not in schema:
                 self.errors.append(f"Unknown key provided in response: '{key}'")
-                continue
+                continue # Skip type check for unknown keys
+            
             expected_type = schema[key]
+            # Check if the value's type matches the expected type in the schema.
             if not isinstance(value, expected_type):
                 self.errors.append(f"Invalid type for key '{key}': expected {expected_type}, but got {type(value)}")
 
     def _validate_jammer_values(self, data: dict):
+        # Specific business logic checks for jammer values.
         if data.get("bandwidth", 0) <= 0: self.errors.append("bandwidth must be > 0")
         if not (0 <= data.get("amplitude", -1) <= 1): self.errors.append("amplitude must be between 0 and 1")
         if data.get("tx_gain", -1) < 0: self.errors.append("tx_gain must be >= 0")
 
     def _validate_sniffer_values(self, data: dict):
+        # Specific business logic checks for sniffer values.
         if data.get("sample_rate", 0) <= 0: self.errors.append("sample_rate must be > 0")
         if data.get("pdcch_num_prbs", 0) <= 0: self.errors.append("pdcch_num_prbs must be > 0")
         if not (0 <= data.get("ssb_numerology") <= 4): self.errors.append("ssb_numerology must be >= 0 and <= 4")
+
+    def _validate_intent_values(self, data: list) -> None:
+        """Validates a list of component names against valid_components set."""
+        if not all(isinstance(item, str) for item in data):
+            self.errors.append("All items in intent list must be strings")
+            return
+
+        invalid_components = [c for c in data if c not in self.valid_components]
+        if invalid_components:
+            self.errors.append(f"Invalid component(s) in intent list: {invalid_components}")
+            return
