@@ -1,9 +1,9 @@
-# main.py (Final, complete version with all functions and looping)
+# main.py — Merged: Old stable functions + RAG retrieval flow
 
 import torch
 from transformers import (
     AutoTokenizer, GenerationConfig,
-    AutoModelForCausalLM
+    AutoModelForCausalLM, BitsAndBytesConfig
 )
 import urllib3
 import yaml
@@ -12,16 +12,22 @@ import logging
 import time
 import os
 import sys
-from typing import List, Dict, Union, Optional, Any
+from typing import List, Dict, Optional, Any
 import argparse
 import pathlib
 import requests
 
+# --- RAG imports ---
+import chromadb
+from chromadb.utils import embedding_functions
+# sentence-transformers backend is pulled by chromadb's SentenceTransformerEmbeddingFunction
+
 from validator import ResponseValidator
 
-# --- Global variables ---
+# --- Globals ---
 model = None
 tokenizer = None
+retriever = None
 
 class Config:
     filename: str = ""
@@ -29,6 +35,9 @@ class Config:
     log_level: int = logging.DEBUG
     standalone: bool = False
 
+# ---------------------------
+# Old, proven environment & IO
+# ---------------------------
 def verify_env():
     """Verifies production environment (root, CUDA, ENV_VARS)."""
     if os.geteuid() != 0:
@@ -52,30 +61,33 @@ def verify_env():
 
 def configure() -> None:
     """Parses command line arguments and loads the YAML config."""
-    parser = argparse.ArgumentParser(
-        description="LLM Worker for RF component configuration")
-    parser.add_argument(
-        "--config", type=pathlib.Path, required=True,
-        help="Path of YAML config for the llm worker")
-    parser.add_argument("--log-level",
-                        default="INFO",
+    parser = argparse.ArgumentParser(description="Unified RAG-Powered System")
+    parser.add_argument("--config", type=pathlib.Path, required=True,
+                        help="Path of YAML config for the llm worker")
+    parser.add_argument("--log-level", default="INFO",
                         help="Set the logging level. Options: DEBUG, INFO, WARNING, ERROR, CRITICAL")
-    parser.add_argument("--standalone",
-                        action="store_true",
+    parser.add_argument("--standalone", action="store_true",
                         help="Run in standalone mode for local testing, bypassing environment checks and controller calls.")
     args = parser.parse_args()
 
     Config.standalone = args.standalone
     Config.log_level = getattr(logging, args.log_level.upper(), logging.INFO)
-
     if not isinstance(Config.log_level, int):
         raise ValueError(f"Invalid log level: {args.log_level}")
-    logging.basicConfig(level=Config.log_level,
-                        format='%(levelname)s - %(message)s',
-                        datefmt='%Y-%m-%d %H:%M:%S')
-    Config.filename = args.config
-    with open(str(args.config), 'r') as file:
-        Config.options = yaml.safe_load(file)
+
+    logging.basicConfig(
+        level=Config.log_level,
+        format="%(asctime)s | %(levelname)s | %(message)s",
+        datefmt="%H:%M:%S"
+    )
+
+    Config.filename = str(args.config)
+    with open(str(args.config), 'r', encoding="utf-8") as file:
+        Config.options = yaml.safe_load(file) or {}
+
+    if not isinstance(Config.options, dict):
+        logging.error("Config YAML must deserialize to a dict.")
+        sys.exit(1)
 
 def list_processes(control_url, auth_header):
     current_endpoint = "/list"
@@ -86,7 +98,7 @@ def list_processes(control_url, auth_header):
             return True, response.json()
         return False, {"error": response.text}
     except requests.exceptions.RequestException as e:
-        return False, {"error":str(e)}
+        return False, {"error": str(e)}
 
 def start_process(control_url, auth_header, json_payload):
     current_endpoint = "/start"
@@ -97,7 +109,7 @@ def start_process(control_url, auth_header, json_payload):
             return True, response.json()
         return False, {"error": response.text}
     except requests.exceptions.RequestException as e:
-        return False, {"error":str(e)}
+        return False, {"error": str(e)}
 
 def stop_process(control_url, auth_header, process_id):
     current_endpoint = "/stop"
@@ -109,7 +121,7 @@ def stop_process(control_url, auth_header, process_id):
             return True, response.json()
         return False, {"error": response.text}
     except requests.exceptions.RequestException as e:
-        return False, {"error":str(e)}
+        return False, {"error": str(e)}
 
 def get_process_logs(control_url, auth_header, json_payload):
     current_endpoint = "/logs"
@@ -120,14 +132,25 @@ def get_process_logs(control_url, auth_header, json_payload):
             return True, response.json()
         return False, {"error": response.text}
     except requests.exceptions.RequestException as e:
-        return False, {"error":str(e)}
+        return False, {"error": str(e)}
 
+def save_config_to_file(config_str: str, config_type: str, config_id: str, output_dir: str = "/host/configs"):
+    os.makedirs(output_dir, exist_ok=True)
+    filename = f"{config_type}_{config_id}.toml"
+    filepath = os.path.join(output_dir, filename)
+    with open(filepath, "w", encoding="utf-8") as f:
+        f.write(config_str)
+    logging.info(f"Config saved to: {filepath}")
+
+# ---------------------------
+# Old, proven LLM helpers
+# ---------------------------
 def generate_response(model, tokenizer, prompt_content: str) -> str:
     device = "cuda" if torch.cuda.is_available() else "cpu"
     messages = [{"role": "user", "content": prompt_content}]
     formatted_prompt = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     inputs = tokenizer(formatted_prompt, return_tensors="pt").to(device)
-    generation_config = GenerationConfig(max_new_tokens=1024, do_sample=False, pad_token_id=tokenizer.eos_token_id)
+    generation_config = GenerationConfig(max_new_tokens=2048, do_sample=False, pad_token_id=tokenizer.eos_token_id)
     with torch.no_grad():
         output_tokens = model.generate(**inputs, generation_config=generation_config)
     input_length = inputs['input_ids'].shape[1]
@@ -145,6 +168,7 @@ def get_intent() -> Optional[List[str]]:
 
     max_attempts = 5
     attempt_count = 1
+    # keep the original {{ user_prompt }} placeholder behavior
     current_prompt_content = intent_prompt.replace("{{ user_prompt }}", user_prompt)
 
     while attempt_count <= max_attempts:
@@ -162,12 +186,14 @@ def get_intent() -> Optional[List[str]]:
         error_details = "\n".join(validator.get_errors())
         logging.warning(f"Intent validation failed on attempt {attempt_count}. Errors:\n{error_details}")
         attempt_count += 1
-        
-        if attempt_count > max_attempts: break
-        
-        correction_prompt = (f"The previous JSON you provided was invalid for the following reasons:\n{error_details}\n\n"
-                           f"Please regenerate the entire, corrected JSON object based on the original request.\n"
-                           f"--- ORIGINAL REQUEST ---\n{user_prompt}")
+        if attempt_count > max_attempts:
+            break
+
+        correction_prompt = (
+            f"The previous JSON you provided was invalid for the following reasons:\n{error_details}\n\n"
+            f"Please regenerate the entire, corrected JSON object based on the original request.\n"
+            f"--- ORIGINAL REQUEST ---\n{user_prompt}"
+        )
         current_prompt_content = correction_prompt
 
     logging.error("Max attempts reached. Intent extraction failed.")
@@ -195,7 +221,9 @@ def response_validation_loop(current_response_text: str, config_type: str, origi
         logging.warning("Validation failed. Preparing to self-correct.")
         attempt_count += 1
         if attempt_count > max_attempts:
-            logging.error("Maximum correction attempts reached."); break
+            logging.error("Maximum correction attempts reached.")
+            break
+
         error_details = "\n".join([f"- {e}" for e in validator.get_errors()])
         logging.warning(f"Validation Errors:\n{error_details}")
 
@@ -210,129 +238,236 @@ def response_validation_loop(current_response_text: str, config_type: str, origi
         logging.info("="*20 + f" CORRECTED OUTPUT (ATTEMPT {attempt_count}) " + "="*20)
         logging.info(f"'{current_response_text}'")
         logging.info("="*20 + " END OF CORRECTED OUTPUT " + "="*20)
-    
+
     return None
 
+# ---------------------------
+# RAG Retriever (new)
+# ---------------------------
+class RAGRetriever:
+    def __init__(self, db_dir="vector_db", collection_name="rf_knowledge", model_name="all-MiniLM-L6-v2"):
+        logging.info("Initializing RAG Retriever...")
+        sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=model_name)
+        db_client = chromadb.PersistentClient(path=db_dir)
+        try:
+            self.collection = db_client.get_collection(name=collection_name, embedding_function=sentence_transformer_ef)
+            logging.info("RAG Retriever initialized successfully.")
+        except Exception as e:
+            logging.error(f"FATAL: Could not initialize ChromaDB collection '{collection_name}'. Error: {e}")
+            logging.error("Please ensure you have run the 'build_vector_db.py' script first.")
+            sys.exit(1)
+
+    def retrieve_context(self, query: str, n_results: int = 3) -> str:
+        logging.info(f"--- RAG: Retrieving context for query: '{query}' ---")
+        results = self.collection.query(query_texts=[query], n_results=n_results)
+        retrieved_docs = results['documents'][0]
+        context_str = ""
+        for i, doc in enumerate(retrieved_docs):
+            source = results['metadatas'][0][i].get('source', 'unknown')
+            logging.info(f"  [Retrieved Doc {i+1} from '{source}']: {doc[:120].strip().replace(chr(10),' ')}...")
+            context_str += f"- From {source}:\n{doc}\n\n"
+        return context_str.strip()
+
+# ======================================================================
+# MAIN
+# ======================================================================
 if __name__ == '__main__':
     configure()
 
-    # --- MODEL LOADING (COMMON TO BOTH MODES) ---
-    model_str = Config.options.get("model", None)
+    # --- Model Loading ---
+    model_str = (Config.options or {}).get("model", None)
     if not model_str:
         logging.error("Model not specified in config file")
         sys.exit(1)
-    logging.info(f"Loading model: {model_str}...")
+
+    logging.info(f"Loading LLM: {model_str}...")
+    bnb_config = BitsAndBytesConfig(
+        load_in_4bit=True,
+        bnb_4bit_quant_type="nf4",
+        bnb_4bit_compute_dtype=torch.bfloat16,
+        bnb_4bit_use_double_quant=True,
+    )
     device_map = "auto" if torch.cuda.is_available() else "cpu"
     if device_map == "cpu" and not Config.standalone:
         logging.warning("Production mode expects CUDA, but it was not found.")
     elif device_map == "cpu" and Config.standalone:
         logging.info("Running on CPU in standalone mode.")
-        
-    model = AutoModelForCausalLM.from_pretrained(model_str, torch_dtype=torch.bfloat16, device_map=device_map)
+
+    model = AutoModelForCausalLM.from_pretrained(model_str, quantization_config=bnb_config, device_map=device_map)
     tokenizer = AutoTokenizer.from_pretrained(model_str)
-    logging.info("Model loaded successfully.")
+    logging.info("LLM loaded successfully.")
 
-    # --- EXECUTION LOGIC BASED ON MODE ---
+    # --- RAG init ---
+    retriever = RAGRetriever()
 
+    # --- Intent ---
+    intent_list = get_intent()
+    if not intent_list:
+        logging.error("Could not determine any valid components from user prompt. Exiting.")
+        sys.exit(1)
+    logging.info(f"\nIntent processing complete. Will generate configs for: {intent_list}\n")
+
+    # --- Execution ---
     if Config.standalone:
-        # ======================================================================
-        # --- STANDALONE TEST MODE ---
-        # ======================================================================
-        logging.info("\n" + "="*20 + " RUNNING IN STANDALONE TEST MODE " + "="*20)
-        
-        intent_list = get_intent()
-
-        if not intent_list:
-            logging.error("Could not determine any valid components from user prompt. Exiting.")
-            sys.exit(1)
-
-        logging.info(f"\nIntent processing complete. Will generate configs for: {intent_list}\n")
-
         for config_type in intent_list:
             logging.info("="*80)
             logging.info(f"PROCESSING COMPONENT: {config_type.upper()}")
             logging.info("="*80)
 
-            component_prompt_key = f"{config_type}"
-            system_prompt = Config.options.get(component_prompt_key, "")
-            user_prompt = Config.options.get("user_prompt", "")
-            
-            if not system_prompt:
-                logging.error(f"Could not find prompt key '{component_prompt_key}' in the config file. Skipping.")
+            # Pull the prompt block for this component
+            system_prompt_full = (Config.options or {}).get(config_type, "")
+            user_request = (Config.options or {}).get("user_prompt", "")
+
+            if not system_prompt_full or not user_request:
+                logging.error(f"System prompt for '{config_type}' or 'user_prompt' not found in config. Skipping.")
                 continue
 
-            original_prompt_content = system_prompt + user_prompt
-            
-            logging.info("Generating initial configuration...")
-            current_response_text = generate_response(model, tokenizer, original_prompt_content)
-            
-            logging.info("\n" + "="*20 + f" INITIAL CONFIG FOR {config_type.upper()} " + "="*20)
-            logging.info(f"'{current_response_text}'")
+            # RAG retrieval + augmented prompt
+            retrieval_query = f"Rules and engineering constraints for a {config_type} config to fulfill the request: {user_request}"
+            retrieved_context = retriever.retrieve_context(retrieval_query)
+
+            # If your prompt blocks contain a "### USER REQUEST:" segment, only use instructions before that.
+            system_instructions = system_prompt_full.split("### USER REQUEST:")[0]
+
+            final_prompt_template = """
+You are an expert RF systems assistant.
+First, review the provided CONTEXT for critical engineering rules.
+Then, use that context to follow the INSTRUCTIONS to generate a valid JSON configuration that fulfills the USER REQUEST.
+
+--- CONTEXT (Rules & Formulas) ---
+{context}
+--- END OF CONTEXT ---
+
+--- INSTRUCTIONS (Schema & Formatting) ---
+{system_prompt_instructions}
+--- END OF INSTRUCTIONS ---
+
+--- USER REQUEST ---
+{user_request}
+
+Provide only the final JSON object.
+
+--- JSON OUTPUT ---
+"""
+            final_augmented_prompt = final_prompt_template.format(
+                context=retrieved_context,
+                system_prompt_instructions=system_instructions,
+                user_request=user_request
+            )
+
+            logging.info("\n--- FINAL AUGMENTED PROMPT FOR LLM ---\n" + final_augmented_prompt + "\n------------------------------------\n")
+            logging.info("Generating initial configuration with RAG...")
+            initial_response_text = generate_response(model, tokenizer, final_augmented_prompt)
+
+            logging.info("\n" + "="*20 + f" RAG-POWERED INITIAL CONFIG FOR {config_type.upper()} " + "="*20)
+            logging.info(f"'{initial_response_text}'")
             logging.info("="*20 + " END OF INITIAL CONFIG " + "="*20 + "\n")
-        
+
+            # Validate / self-correct (old loop)
+            validated_data = response_validation_loop(initial_response_text, config_type, user_request)
+            if not validated_data:
+                logging.error(f"Could not obtain a valid config for '{config_type}' after all attempts. Skipping.")
+                continue
+
+            # Pretty print or save
+            try:
+                pretty_json = json.dumps(validated_data, indent=2)
+                logging.info("="*20 + f" STANDALONE MODE: FINAL VALIDATED JSON FOR {config_type.upper()} " + "="*20)
+                logging.info(pretty_json)
+            except TypeError:
+                logging.info(str(validated_data))
+
+            # Optional local save (TOML string expected in 'config_str')
+            if validated_data.get("config_str") and validated_data.get("id") and validated_data.get("type"):
+                save_config_to_file(validated_data["config_str"], validated_data["type"], validated_data["id"])
+
         logging.info("\nStandalone test finished processing all components.")
 
     else:
-        # ======================================================================
-        # --- PRODUCTION MODE ---
-        # ======================================================================
+        # Production: verify env and talk to controller
         logging.info("\n" + "="*20 + " RUNNING IN PRODUCTION MODE " + "="*20)
         control_ip, control_port, control_token = verify_env()
         control_url = f"https://{control_ip}:{control_port}"
         auth_header = f"Bearer {control_token}"
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-        intent_list = get_intent()
-        if not intent_list:
-            logging.error("Could not determine any valid components from user prompt. Exiting.")
-            sys.exit(1)
-
-        logging.info(f"\nIntent processing complete. Will configure and start: {intent_list}\n")
-
         for config_type in intent_list:
             logging.info("="*80)
             logging.info(f"PROCESSING COMPONENT: {config_type.upper()}")
             logging.info("="*80)
 
-            component_prompt_key = f"{config_type}_prompt"
-            system_prompt = Config.options.get(component_prompt_key, "")
-            user_prompt = Config.options.get("user_prompt", "")
-            original_prompt_content = system_prompt + user_prompt
-            
-            logging.info("="*20 + " EXECUTING PROMPT " + "="*20)
-            current_response_text = generate_response(model, tokenizer, original_prompt_content)
+            system_prompt_full = (Config.options or {}).get(config_type, "")
+            user_request = (Config.options or {}).get("user_prompt", "")
+
+            if not system_prompt_full or not user_request:
+                logging.error(f"System prompt for '{config_type}' or 'user_prompt' not found in config. Skipping.")
+                continue
+
+            retrieval_query = f"Rules and engineering constraints for a {config_type} config to fulfill the request: {user_request}"
+            retrieved_context = retriever.retrieve_context(retrieval_query)
+            system_instructions = system_prompt_full.split("### USER REQUEST:")[0]
+
+            final_prompt_template = """
+You are an expert RF systems assistant.
+First, review the provided CONTEXT for critical engineering rules.
+Then, use that context to follow the INSTRUCTIONS to generate a valid JSON configuration that fulfills the USER REQUEST.
+
+--- CONTEXT (Rules & Formulas) ---
+{context}
+--- END OF CONTEXT ---
+
+--- INSTRUCTIONS (Schema & Formatting) ---
+{system_prompt_instructions}
+--- END OF INSTRUCTIONS ---
+
+--- USER REQUEST ---
+{user_request}
+
+Provide only the final JSON object.
+
+--- JSON OUTPUT ---
+"""
+            final_augmented_prompt = final_prompt_template.format(
+                context=retrieved_context,
+                system_prompt_instructions=system_instructions,
+                user_request=user_request
+            )
+
+            logging.info("\n--- FINAL AUGMENTED PROMPT FOR LLM ---\n" + final_augmented_prompt + "\n------------------------------------\n")
+            logging.info("Generating initial configuration with RAG...")
+            initial_response_text = generate_response(model, tokenizer, final_augmented_prompt)
+
             logging.info("="*20 + " MODEL GENERATED OUTPUT " + "="*20)
-            logging.info(f"'{current_response_text}'")
+            logging.info(f"'{initial_response_text}'")
             logging.info("="*20 + " END OF MODEL OUTPUT " + "="*20)
 
-            validated_data = response_validation_loop(current_response_text, config_type, original_prompt_content)
-
+            validated_data = response_validation_loop(initial_response_text, config_type, user_request)
             if validated_data and validated_data.get('config_str'):
                 logging.info("="*20 + " FINAL VALIDATED CONFIGURATION " + "="*20)
-                
+
                 controller_retry_max_attempts = 10
                 controller_attempt_count = 1
-                
+
                 while controller_attempt_count <= controller_retry_max_attempts:
                     final_config_type = validated_data.get('type')
                     final_config_id = validated_data.get('id')
                     final_config_string = validated_data.get('config_str')
-                    
+
                     json_payload = {"id": final_config_id, "type": final_config_type, "config_str": final_config_string}
-                    json_payload["rf"] = {"type":"b200","images_dir":"/usr/share/uhd/images"}
-                    
+                    json_payload["rf"] = {"type": "b200", "images_dir": "/usr/share/uhd/images"}
+
                     logging.info(f"Attempting to start process with controller (Attempt {controller_attempt_count}/{controller_retry_max_attempts})...")
                     success, response_data = start_process(control_url, auth_header, json_payload)
 
                     if success:
                         logging.info(f"Successfully started component '{config_type}'.")
                         logging.info(f"Controller response: {response_data}")
-                        break 
-                    
+                        break
+
                     logging.error(f"Failed to start component '{config_type}' via controller.")
                     controller_error_details = response_data.get("error", "No error details from controller.")
                     logging.error(f"Controller error: {controller_error_details}")
-                    
+
                     controller_attempt_count += 1
                     if controller_attempt_count > controller_retry_max_attempts:
                         logging.critical("Maximum controller retry attempts reached. Aborting this component.")
@@ -343,14 +478,13 @@ if __name__ == '__main__':
                         f"The configuration you provided was syntactically valid, but the system controller REJECTED it for the following reason:\n"
                         f"{controller_error_details}\n\n"
                         f"Please analyze this feedback and regenerate the entire, corrected JSON object based on the original request.\n"
-                        f"--- ORIGINAL REQUEST ---\n{original_prompt_content}"
+                        f"--- ORIGINAL REQUEST ---\n{user_request}"
                     )
-                    
-                    current_response_text = generate_response(model, tokenizer, controller_correction_prompt)
-                    
+
+                    initial_response_text = generate_response(model, tokenizer, controller_correction_prompt)
                     logging.info("="*20 + " RE-VALIDATING CONTROLLER CORRECTION " + "="*20)
-                    validated_data = response_validation_loop(current_response_text, config_type, original_prompt_content)
-                    
+                    validated_data = response_validation_loop(initial_response_text, config_type, user_request)
+
                     if not validated_data:
                         logging.error("The LLM produced a syntactically invalid configuration while trying to correct a controller error. Aborting this component.")
                         break
