@@ -16,13 +16,13 @@ def build_db():
     """
     print("--- Building Vector Database ---")
     
-    # 1. Initialize empty lists to hold our data
+    # Initialize empty lists to hold our data
     documents = []
     metadatas = []
     ids = []
     doc_id_counter = 1
 
-    # 2. Load all documents from the knowledge base directory
+    # Load all documents from the knowledge base directory
     for filename in os.listdir(KNOWLEDGE_BASE_DIR):
         if filename.endswith(".md"):
             filepath = os.path.join(KNOWLEDGE_BASE_DIR, filename)
@@ -40,13 +40,13 @@ def build_db():
         print("No knowledge documents found in the 'knowledge_base' directory. Aborting.")
         return
 
-    # 3. Create an explicit embedding function to avoid the ONNX hanging issue
+    # Create an explicit embedding function to avoid the ONNX hanging issue
     print(f"Initializing SentenceTransformer embedding function for: {EMBEDDING_MODEL_NAME}")
     sentence_transformer_ef = embedding_functions.SentenceTransformerEmbeddingFunction(
         model_name=EMBEDDING_MODEL_NAME
     )
 
-    # 4. Initialize ChromaDB client and get or create the collection
+    # Initialize ChromaDB client and get or create the collection
     client = chromadb.PersistentClient(path=VECTOR_DB_DIR)
     
     # Delete the collection if it already exists to ensure a fresh start
@@ -60,7 +60,7 @@ def build_db():
         embedding_function=sentence_transformer_ef
     )
 
-    # 5. Add the documents to the collection. ChromaDB will use our function to embed them.
+    # Add the documents to the collection. ChromaDB will use our function to embed them.
     print("Adding documents to the collection...")
     collection.add(
         documents=documents,
