@@ -1,0 +1,16 @@
+# Stop Docker and move the data directory:
+
+sudo systemctl stop docker
+sudo rsync -aHAX --info=progress2 /var/lib/docker/ "/media/secureslicing/New Volume/docker/"
+sudo mv /var/lib/docker /var/lib/docker.bak
+
+# Point Docker to new location:
+sudo mkdir -p /etc/docker
+echo '{ "data-root": "/media/secureslicing/New Volume/docker" }' | sudo tee /etc/docker/daemon.json
+sudo systemctl start docker
+
+# Verify and remove the backup if all’s good:
+docker system info | grep "Docker Root Dir"
+sudo rm -rf /var/lib/docker.bak
+
+
